@@ -1,0 +1,317 @@
+<!--
+  데이터 과학 영향력 탐구 — Ⅱ 영향 평가
+  © 2026 티쳐무 · 모든 권리 보유
+  양팔 저울 · 사례 구체성 뱃지 · 부정 영향 유형 · 영향 사슬
+-->
+<script>
+/* ══════════════════════════════════════════════════════════
+   ① 양팔 저울 — 긍정과 부정을 개인·사회로 나누어
+   ══════════════════════════════════════════════════════════ */
+REG({
+  id: 'scale', tab: 2, title: '⚖ 양팔 저울',
+  render: function (host) {
+    var figBox = h('div');
+    var vbox = h('div.verdict');
+
+    function repaint() {
+      var r = JUDGE.balance(STORE.vals, 60);
+      clear(figBox);
+      figBox.appendChild(scaleFig(r.pos, r.neg, r.per));
+      vbox.className = 'verdict show ' + (r.got === 4 ? 'ok' : (r.got ? 'part' : 'no'));
+      vbox.textContent = r.msg + '  (' + r.got + ' / 4칸)';
+      setScore('balance', r.got, r.got > 0);
+    }
+
+    host.appendChild(card('⚖ 양팔 저울 — 한쪽만 쓰면 기웁니다', [
+      goalBox([
+        '<b>네 칸</b>을 모두 채워야 저울이 수평이 됩니다 — 긍정·부정 × 개인·사회.',
+        '한 칸에 <b>60자</b>가 넘으면 저울에 올라갑니다.',
+        '「편리해졌다」 로 끝내지 말고 <b>무엇이 어떻게</b> 편해졌는지 적으세요.',
+        '여기 적은 네 칸 가운데 <b>하나를 골라</b> 다음 화면 <b>[🎯 사례 구체성]</b> 에서 ' +
+        '실제 사례로 구체화합니다 — 그러니 <b>사례를 댈 수 있는 이야기</b>를 적으면 좋습니다.'
+      ]),
+      figBox,
+      vbox,
+      h('div.hr'),
+      h('h3', '1. 긍정적 영향'),
+      field('pos_me', { rows: 3, help: '<b>나에게</b> 무엇이 좋아졌나요? 시간·돈·기회·건강·관계 가운데 무엇이 달라졌는지 짚어 보세요.',
+        ph: '예: 병원 기록이 데이터로 남아, 다른 병원에 가도 지난 검사 결과를 다시 받지 않아도 된다. 그만큼…',
+        onInput: repaint }),
+      field('pos_soc', { rows: 3, help: '<b>사회 전체</b>에는 무엇이 좋아졌나요? 개인의 이야기를 되풀이하지 말고 층위를 바꿔 보세요.',
+        ph: '예: 감염병이 퍼지는 길을 데이터로 빠르게 찾아내 대응할 수 있게 되었다.',
+        onInput: repaint }),
+      h('div.hr'),
+      h('h3', '3. 부정적 영향'),
+      h('p.small', '(2번 「사례 제시」 는 [✍ 나만의 타임라인] 과 [🎯 사례 구체성] 화면에 있습니다 — ' +
+                   '번호가 빠진 것이 아닙니다)'),
+      inCourse('negsort')
+        ? noteBox('여기는 <b>[🧩 부정 영향 유형]</b> 화면을 먼저 해 보고 오면 훨씬 쉽게 써집니다. ' +
+                  '내 사례에서 실제로 생길 수 있는 일을 적으세요 — 남의 이야기를 옮겨 적는 것이 아닙니다.')
+        : noteBox('<b>내 사례에서 실제로 생길 수 있는 일</b>을 적으세요 — 남의 이야기를 옮겨 적는 것이 아닙니다. ' +
+                  '디지털 격차 · 과의존 · 개인정보 · 일자리 변화 · 편향 · 판단을 맡김 가운데 ' +
+                  '내 사례에 해당하는 것이 있는지 살펴보세요.'),
+      field('neg_me', { rows: 3, help: '<b>나에게</b> 생기는 대가는 무엇인가요?',
+        ph: '예: 손목 기기가 잰 심박·수면 기록이 계속 남아, 내가 어떻게 지냈는지가 회사 앱에 쌓인다. 그래서…',
+        onInput: repaint }),
+      field('neg_soc', { rows: 3, help: '<b>사회 전체</b>에 생기는 대가는 무엇인가요?',
+        ph: '예: 기록이 없는 사람은 서비스에서 불리해져, 쓸 수 있는 사람과 못 쓰는 사람 사이가 벌어진다.',
+        onInput: repaint }),
+      tipBox('저울이 수평이 되었다면 다음은 <b>Ⅲ 보완 방법</b>입니다. ' +
+             '부정적 영향을 적었으니, 그것을 <b>누가 어떻게 줄일 수 있는지</b>가 남았습니다.')
+    ]));
+    repaint();
+  }
+});
+
+/* ══════════════════════════════════════════════════════════
+   ② 사례 구체성 뱃지 — 이 앱의 핵심 장치
+   ══════════════════════════════════════════════════════════ */
+REG({
+  id: 'caseit', tab: 2, title: '🎯 사례 구체성',
+  render: function (host) {
+    var bdgs = h('div.bdgs');
+    var whys = h('div');
+    var pickBox = h('div');
+
+    /* ── 저울에 적은 네 칸 가운데 하나를 골라 그것을 사례로 만든다 ──
+       고른 것은 answers['case-pick'] 에만 담는다(채점 항목이 아니다). */
+    var SCALE_KEYS = [
+      { k: 'pos_me',  lab: '개인 긍정' },
+      { k: 'pos_soc', lab: '사회 긍정' },
+      { k: 'neg_me',  lab: '개인 부정' },
+      { k: 'neg_soc', lab: '사회 부정' }
+    ];
+
+    function paintPick() {
+      clear(pickBox);
+      var written = SCALE_KEYS.filter(function (x) { return JUDGE.len(getVal(x.k)) > 0; });
+
+      if (!written.length) {
+        pickBox.appendChild(noteBox(
+          '먼저 <b>[⚖ 양팔 저울]</b> 에서 긍정·부정 영향을 적고 오세요. ' +
+          '거기 적은 <b>네 칸 가운데 하나를 골라</b> 이 화면에서 구체적인 사례로 만듭니다. ' +
+          '(저울은 「무엇이 달라졌나」 큰 이야기, 이 화면은 그 이야기의 <b>실제 한 가지 사례</b>입니다)'));
+        if (inCourse('scale')) {
+          pickBox.appendChild(h('div.row', [
+            h('button.btn.ghost', { type: 'button', onclick: function () { showScreen('scale'); } },
+              '⚖ 양팔 저울로 가기')
+          ]));
+        }
+        return;
+      }
+
+      var cur = loadAns('case-pick', '');
+      pickBox.appendChild(h('p.small', { html:
+        '저울에 적은 것 가운데 <b>사례로 만들 하나</b>를 고르세요. 골라 두면 아래 칸을 쓸 때 위에 붙어 있습니다.' }));
+      var cards = h('div.cards.col');
+      written.forEach(function (x) {
+        var v = getVal(x.k);
+        var b = h('button.dcard' + (cur === x.k ? '.on' : ''), { type: 'button' }, [
+          h('b', x.lab + ' — '),
+          v.length > 70 ? v.slice(0, 70) + '…' : v
+        ]);
+        b.addEventListener('click', function () {
+          saveAns('case-pick', cur === x.k ? '' : x.k);   /* 다시 누르면 고르기 취소 */
+          paintPick();
+        });
+        cards.appendChild(b);
+      });
+      pickBox.appendChild(cards);
+
+      if (cur && JUDGE.len(getVal(cur)) > 0) {
+        var lab = '';
+        SCALE_KEYS.forEach(function (x) { if (x.k === cur) lab = x.lab; });
+        /* 학생이 쓴 글이므로 innerHTML 로 넣지 않고 글자 그대로 붙인다 */
+        pickBox.appendChild(h('div.tip', [
+          h('b', '내가 고른 이야기 (' + lab + ')'),
+          h('div', { style: 'margin:4px 0 6px' }, getVal(cur)),
+          h('div.small', '이 이야기를 「누가 · 언제 · 무엇을 · 어떻게 · 어떤 데이터」 로 풀어 쓰면 됩니다. ' +
+                         '이야기 전체가 아니라 그 안의 실제 사례 하나만 고르세요.')
+        ]));
+      }
+    }
+
+    function repaint() {
+      var r = JUDGE.spec(STORE.vals);
+      clear(bdgs); clear(whys);
+      r.badges.forEach(function (b) {
+        bdgs.appendChild(h('span.bdg' + (b.ok ? '.on' : ''), (b.ok ? '✓ ' : '· ') + b.badge));
+      });
+      bdgs.appendChild(h('span.badge' + (r.got === r.of ? '.ok' : (r.got ? '.part' : '.no')),
+        r.got + ' / ' + r.of));
+      r.badges.forEach(function (b) {
+        whys.appendChild(h('p.bwhy.' + (b.ok ? 'yes' : 'no'), [
+          h('span.k', (b.ok ? '✓ ' : '· ') + b.badge + ' — '), b.why
+        ]));
+      });
+      setScore('spec-badge', r.got, true);
+    }
+
+    host.appendChild(card('🎯 사례 구체성 — 뱃지 다섯 개를 켜세요', [
+      goalBox([
+        '<b>[⚖ 양팔 저울] 에 적은 네 칸 가운데 하나를 골라</b>, 그 이야기를 뒷받침하는 ' +
+        '<b>실제 사례 하나</b>를 구체적으로 씁니다.',
+        '이 과목에서 찾는 사례는 <b>데이터로 문제를 푼 사례</b>입니다 — ' +
+        '어떤 기록을 모아, 어떻게 분석해서, 무엇을 결정하게 되었는지.',
+        '<b>누가 · 언제 · 무엇을 · 어떻게</b>, 그리고 <b>어떤 데이터</b>를 채우면 뱃지가 켜집니다.',
+        '안 켜지면 <b>왜 안 켜졌는지</b> 아래에 이유가 나옵니다. 검색해서 확인하고 고쳐 보세요.',
+        '<b>확인할 수 없는 것은 쓰지 마세요.</b> 지어낸 회사 이름·연도는 사례가 아닙니다.'
+      ]),
+      pickBox,
+      h('div.hr'),
+      bdgs,
+      noteBox('이 뱃지는 <b>규칙으로 훑는 자기 점검 도구</b>입니다. 사람처럼 읽지 못하므로 ' +
+              '뱃지가 다 켜져도 내용이 부실할 수 있고, 덜 켜져도 좋은 답일 수 있습니다. ' +
+              '<b>선생님은 글을 읽고 피드백을 주십니다</b> — 뱃지 개수로 점수가 갈리지 않습니다.'),
+      whys,
+      h('div.hr'),
+      field('case_who', { short: true, ph: '예: 국립암센터 연구팀 / 네이버 지도팀',
+        help: '<b>누가</b> — 실제 회사·기관·연구팀·사람의 이름. 「어떤 기업이」 는 이름이 아닙니다.',
+        onInput: repaint }),
+      field('case_when', { short: true, ph: '예: 2016년 / 2020년 무렵',
+        help: '<b>언제</b> — 연도. 「요즘」 은 시점이 아닙니다.', onInput: repaint }),
+      field('case_what', { short: true, ph: '예: 실시간 교통정보를 반영하는 지도 앱 길 안내 기능',
+        help: '<b>무엇을</b> — 기술·서비스의 이름과 종류.', onInput: repaint }),
+      field('case_how', { rows: 3,
+        ph: '예: 이용자 기기가 보내는 위치와 속도를 모아 구간마다 지금 걸리는 시간을 계산하고, 더 빠른 길로 경로를 다시 잡아 안내한다.',
+        help: '<b>어떻게</b> — 무엇을 모아 어떻게 처리해서 무엇을 내놓는지. 40자 이상.',
+        onInput: repaint }),
+      field('case_data', { rows: 2,
+        ph: '예: 수많은 이용자 기기의 위치·속도 기록과, 과거 같은 시간대의 통행 시간 기록',
+        help: '<b>어떤 데이터</b> — <b>데이터 과학 과목의 핵심 칸</b>입니다. 그 일이 어떤 <b>기록</b>으로 ' +
+              '가능했는지 적으세요. 데이터가 없었다면 그 일이 가능했을까요?',
+        onInput: repaint }),
+      moreBox('막혔을 때 — 사례를 작게 줄이세요', [
+        h('p', '「인공지능이 의료를 바꿨다」 는 너무 큽니다. 사례는 작을수록 구체적으로 씁니다.'),
+        h('ul', [
+          h('li', '전 사회 → 우리 동네 배달 앱 한 곳'),
+          h('li', '의료 전체 → 어느 병원의 어떤 검사 한 가지'),
+          h('li', '교육 전체 → 내가 쓰는 학습 앱의 오답 추천 기능')
+        ]),
+        h('p.small', '작게 줄이면 「어떤 데이터를 썼나」 가 눈에 보입니다.')
+      ])
+    ]));
+    paintPick();
+    repaint();
+  }
+});
+
+/* ══════════════════════════════════════════════════════════
+   ③ 부정 영향 유형 짝 맞추기
+   ══════════════════════════════════════════════════════════ */
+REG({
+  id: 'negsort', tab: 2, title: '🧩 부정 영향 유형',
+  render: function (host) {
+    var g = grader('neg-sort');
+    var names = DATA.negTypes.map(function (t) { return t.name; });
+
+    var list = h('div');
+    DATA.negCases.forEach(function (c, i) {
+      var t = null;
+      DATA.negTypes.forEach(function (x) { if (x.key === c.type) t = x; });
+      list.appendChild(h('div.fld', [
+        h('div.fld-h', h('b', (i + 1) + '. ' + c.text)),
+        h('div.row.tight', [g.sel(names, t.name, { ph: '유형 고르기' })])
+      ]));
+    });
+
+    var why = h('div');
+    var whyList = h('div');
+    DATA.negCases.forEach(function (c, i) {
+      var t = null;
+      DATA.negTypes.forEach(function (x) { if (x.key === c.type) t = x; });
+      whyList.appendChild(h('p', { html: '<b>' + (i + 1) + '. ' + t.name + '</b> — ' + c.why }));
+    });
+    why.appendChild(moreBox('해설 보기 (6문항)', whyList));
+
+    host.appendChild(card('🧩 부정 영향 유형 — 이름을 가지면 찾아낼 수 있다', [
+      goalBox([
+        '사례를 읽고 어떤 <b>유형</b>의 부작용인지 고르세요.',
+        '유형에 <b>이름</b>이 붙으면, 내 사례의 부작용도 찾아낼 수 있게 됩니다.'
+      ]),
+      table(['유형', '어떤 일인가'], DATA.negTypes.map(function (t) {
+        return [h('b', t.name), t.hint];
+      }), { left: [0, 1], leftHead: true }),
+      h('div.hr'),
+      list,
+      g.verdict(),
+      g.controls(),
+      why,
+      tipBox('여기서 고른 유형 가운데 <b>내 사례에도 생길 수 있는 것</b>을 골라 ' +
+             '[⚖ 양팔 저울] 화면의 3번 칸에 적으세요.')
+    ]));
+    g.restore();
+  }
+});
+
+/* ══════════════════════════════════════════════════════════
+   ④ 영향 사슬 (도미노)
+   ══════════════════════════════════════════════════════════ */
+REG({
+  id: 'chain', tab: 2, title: '🁢 영향 사슬',
+  render: function (host) {
+    var g = grader('chain-order');
+    var order = [2, 0, 4, 1, 3];      /* 화면에 보여 주는 순서 (정답 순서가 아니다) */
+    var nums = ['1', '2', '3', '4', '5'];
+
+    var list = h('div');
+    order.forEach(function (idx) {
+      var c = DATA.chain[idx];
+      list.appendChild(h('div.fld', [
+        h('div.fld-h', [h('b', c.text)]),
+        h('div.row.tight', [h('span.small', '몇 번째?'), g.sel(nums, String(c.step), { ph: '번호' })])
+      ]));
+    });
+
+    var answer = h('div');
+    answer.appendChild(moreBox('정답 사슬 보기', [
+      chainView(DATA.chain.map(function (c) {
+        return { kind: c.step + '. ' + c.kind, text: c.text, cls: c.kind === '부작용' ? 'bad' : '' };
+      })),
+      h('p.small', { html: '기술이 곧바로 부작용을 만드는 것이 아니라 <b>가운데 여러 칸을 지나</b> 도달합니다. ' +
+                           '그래서 보완도 부작용 자리가 아니라 <b>가운데 칸</b>에서 걸 수 있습니다.' })
+    ]));
+
+    /* 내 사례로 만든 사슬 */
+    var mine = h('div');
+    function paintMine() {
+      clear(mine);
+      var f = getVal('case_field') || '(분야 미정)';
+      var now = getVal('case_now') || '(현재 모습을 아직 안 적었습니다)';
+      var neg = getVal('neg_me') || getVal('neg_soc') || '';
+      mine.appendChild(chainView([
+        { kind: '기술', text: '<b>' + f + '</b> 에서 데이터가 쌓이기 시작한다.' },
+        { kind: '1차 변화', text: now },
+        { kind: '2차 변화', text: '그래서 사람들이 하는 일이 달라진다 — 어떻게 달라졌는지 생각해 보세요.' },
+        { kind: '부작용', cls: 'bad',
+          text: neg || '아직 비어 있습니다. [⚖ 양팔 저울] 의 3번 칸을 채우면 여기에 들어옵니다.' }
+      ]));
+    }
+
+    host.appendChild(card('🁢 영향 사슬 — 부작용은 몇 단계를 거쳐 온다', [
+      goalBox([
+        '아래 다섯 장을 <b>일어난 순서</b>대로 번호를 매기세요 (배달 앱 이야기).',
+        '순서를 맞춘 뒤, <b>내 사례로 같은 사슬</b>을 만들어 봅니다.'
+      ]),
+      list,
+      g.verdict(),
+      g.controls(),
+      answer,
+      h('div.hr'),
+      h('h3', '내 사례로 만든 사슬'),
+      h('p.small', '앞에서 쓴 내용이 자동으로 들어옵니다. 비어 있으면 그 화면으로 가서 채우세요.'),
+      mine,
+      h('div.row', [
+        h('button.btn.ghost', { type: 'button', onclick: function () { paintMine(); toast('다시 불러왔습니다.'); } },
+          '↻ 내 답 다시 불러오기'),
+        h('button.btn.gray', { type: 'button', onclick: function () { showScreen('scale'); } },
+          '⚖ 양팔 저울로 가기')
+      ]),
+      askBox('생각해 볼 것 — <b>이 사슬의 어느 칸을 끊으면</b> 부작용을 줄일 수 있을까요? ' +
+             '부작용 자리에서 막는 것과, 가운데 칸에서 막는 것은 무엇이 다를까요?')
+    ]));
+    paintMine();
+    g.restore();
+  }
+});
+</script>

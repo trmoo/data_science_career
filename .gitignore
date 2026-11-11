@@ -1,0 +1,11 @@
+node_modules/
+dist/
+# 원본 자료는 저작권상 저장소에 올리지 않는다
+*.pdf
+*.hwp
+*.hwpx
+*.docx
+*.xlsx
+source/
+CLAUDE.md
+.claude/

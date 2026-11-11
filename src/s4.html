@@ -1,0 +1,304 @@
+<!--
+  데이터 과학 영향력 탐구 — Ⅳ 진로 설계
+  © 2026 티쳐무 · 모든 권리 보유
+  직업 변화 카드 · 진로 나침반 · 역량 레이더 · 준비 계획
+  ⚠ 나침반은 이유 없는 추천을 하지 않는다. 추천에는 반드시 「왜」가 붙는다.
+-->
+<script>
+/* 고른 진로 분야에 맞는 DATA.careers 항목 찾기 (직접 적은 이름이면 null) */
+function myCareer() {
+  var v = JUDGE.norm(getVal('career_field'));
+  if (!v) return null;
+  var found = null;
+  DATA.careers.forEach(function (c) {
+    if (c.name === v) found = c;
+  });
+  if (found) return found;
+  DATA.careers.forEach(function (c) {
+    if (!found && v.indexOf(c.name) >= 0) found = c;
+  });
+  return found;
+}
+
+/* ══════════════════════════════════════════════════════════
+   ① 직업 변화 카드
+   ══════════════════════════════════════════════════════════ */
+REG({
+  id: 'jobs', tab: 4, title: '🃏 직업 카드',
+  render: function (host) {
+    var g = grader('job-sort');
+    var order = [0, 5, 2, 7, 1, 8, 3, 6, 4, 9];   /* 섞어 보여 준다 */
+    var cardEls = [];
+
+    var grid = h('div.flip');
+    order.forEach(function (idx) {
+      var j = DATA.jobs[idx];
+      var whyBox = h('div.why', j.why);
+      var box = h('div.flipcard', [
+        h('h4', j.name),
+        g.pick(['줄어든 일', '새로 생긴 일'], j.side === 'gone' ? '줄어든 일' : '새로 생긴 일'),
+        whyBox
+      ]);
+      cardEls.push(box);
+      grid.appendChild(box);
+    });
+
+    host.appendChild(card('🃏 사라진 일, 새로 생긴 일', [
+      goalBox([
+        '열 가지 직업을 <b>줄어든 일 / 새로 생긴 일</b> 로 나누세요.',
+        '[확인] 을 누르면 카드가 뒤집혀 <b>왜 그렇게 되었는지</b> 나옵니다.',
+        '다 보고 나서 <b>둘을 가른 기준</b>이 무엇인지 스스로 말해 보세요.'
+      ]),
+      grid,
+      g.verdict(),
+      h('div.row', [
+        h('button.btn', { type: 'button', onclick: function () {
+          g.check();
+          cardEls.forEach(function (b) { b.classList.add('open'); });
+        } }, '확인하고 뒤집기'),
+        h('button.btn.gray', { type: 'button', onclick: function () {
+          g.reset();
+          cardEls.forEach(function (b) { b.classList.remove('open'); });
+        } }, '다시 하기'),
+        h('span.small.grow', { style: 'text-align:right' }, '만점 ' + actOf('job-sort').max + '점')
+      ]),
+      askBox('둘을 가른 기준은 무엇일까요? — <b>되풀이되고 규칙이 뚜렷한 일</b>은 기계가 대신하기 쉬웠고, ' +
+             '<b>판단하고 설계하고 데이터를 해석하는 일</b>은 새로 늘었습니다.<br>' +
+             '그럼 <b>내가 관심 있는 일</b>은 어느 쪽에 가까운가요? 무엇을 더하면 옮겨 갈 수 있을까요?'),
+      noteBox('일자리는 사라지기만 하지 않습니다. <b>다른 자리로 옮겨 갑니다.</b> ' +
+              '다만 옮겨 갈 준비가 된 사람만 따라갈 수 있다는 것이 이 이야기의 어려운 부분입니다.')
+    ]));
+    g.restore();
+  }
+});
+
+/* ══════════════════════════════════════════════════════════
+   ② 진로 나침반
+   ══════════════════════════════════════════════════════════ */
+REG({
+  id: 'compass', tab: 4, title: '🧭 진로 나침반',
+  render: function (host) {
+    var picks = loadAns('compass', []);
+    var result = h('div');
+
+    function paintResult() {
+      var r = JUDGE.compass(picks);
+      clear(result);
+      if (r.answered < 6) {
+        result.appendChild(h('div.verdict.show.part',
+          '문항 ' + r.answered + ' / ' + r.of + ' 에 답했습니다. ' +
+          '여섯 문항 이상 답하면 후보를 보여 드립니다.'));
+        return;
+      }
+      result.appendChild(h('h3', '후보 세 가지 — 왜 이 분야인가'));
+      result.appendChild(h('p.small', { html: '문항 ' + r.answered + ' / ' + r.of + ' 에 답한 결과입니다. ' +
+        '이것은 <b>정답이 아니라 출발점</b>입니다. 마음에 드는 것이 없으면 직접 적으세요.' }));
+      r.top.forEach(function (t, i) {
+        var c = null;
+        DATA.careers.forEach(function (x) { if (x.key === t.key) c = x; });
+        result.appendChild(h('div.mini-card', [
+          h('h4', (i + 1) + '. ' + t.name + '  '),
+          h('p', { style: 'margin:2px 0' }, t.what),
+          h('p.small', { html: '<b>왜 이 분야인가</b> — ' + t.why }),
+          h('p.small', { html: '<b>하는 일</b> — ' + c.jobs.join(' · ') }),
+          h('p.small', { html: '<b>다루는 것</b> — ' + c.tech.join(' · ') }),
+          h('div.row.tight', [
+            h('button.btn.sm', { type: 'button', onclick: function () {
+              saveVal('career_field', t.name);
+              showScreen('compass');
+              toast('「' + JOSA.eul(t.name) + '」 진로 분야로 넣었습니다.');
+            } }, '이 분야로 정하기')
+          ])
+        ]));
+      });
+    }
+
+    var qlist = h('div');
+    DATA.compass.forEach(function (q, qi) {
+      var row = h('div.fld', [h('div.fld-h', h('b', (qi + 1) + '. ' + q.q))]);
+      var wrap = h('div.cards.col');
+      q.opts.forEach(function (o, oi) {
+        var b = h('button.dcard' + (picks[qi] === oi ? '.on' : ''), { type: 'button' }, o.label);
+        b.addEventListener('click', function () {
+          picks[qi] = oi;
+          saveAns('compass', picks);
+          Array.prototype.forEach.call(wrap.children, function (c) { c.classList.remove('on'); });
+          b.classList.add('on');
+          paintResult();
+        });
+        wrap.appendChild(b);
+      });
+      row.appendChild(wrap);
+      qlist.appendChild(row);
+    });
+
+    host.appendChild(card('🧭 진로 나침반 — 열두 문항', [
+      goalBox([
+        '맞고 틀리는 문항이 아닙니다. <b>고른 답에 따라 후보 세 가지</b>가 이유와 함께 나옵니다.',
+        '추천은 <b>강제가 아닙니다.</b> 직접 적어도 되고, 목록에 없는 분야여도 됩니다.',
+        '이 화면은 점수를 매기지 않습니다.'
+      ]),
+      qlist,
+      h('div.hr'),
+      result
+    ]));
+
+    host.appendChild(card('📌 내 진로 분야', [
+      field('career_field', { short: true, ph: '예: 보건·의료 데이터 / 교사 / 기자 …',
+        help: '위 후보에서 골라도 되고, 직접 적어도 됩니다. <b>목록에 없는 분야여도 괜찮습니다.</b>',
+        onInput: function () { /* 레이더 화면에서 다시 읽는다 */ } }),
+      field('career_why', { rows: 3,
+        help: '<b>왜 이 분야인가</b> — 앞에서 쓴 사례·영향 분석과 <b>이어지도록</b> 적으면 좋은 답이 됩니다. ' +
+              '「그냥 좋아서」 보다 「내가 쓴 그 문제를 다루는 일이라서」 가 낫습니다.',
+        ph: '예: 내 사례에서 진료 기록이 데이터가 되며 좋아진 점과 걱정되는 점을 함께 보았다. 그 둘을 같이 다루는 일이…' }),
+      h('div.row', [
+        h('button.btn.ghost', { type: 'button', onclick: function () { showScreen('radar'); } },
+          '📊 필요한 역량 보러 가기 →')
+      ])
+    ]));
+
+    paintResult();
+  }
+});
+
+/* ══════════════════════════════════════════════════════════
+   ③ 역량 레이더
+   ══════════════════════════════════════════════════════════ */
+REG({
+  id: 'radar', tab: 4, title: '📊 역량 레이더',
+  render: function (host) {
+    var now = loadAns('radar', {});
+    var figBox = h('div');
+    var gapBox = h('div');
+    var c = myCareer();
+
+    function repaint() {
+      clear(figBox); clear(gapBox);
+      var series = [{ name: '지금 나', color: '#1f7a5c', vals: now, fill: true }];
+      if (c) series.push({ name: c.name + ' 에 필요한 수준', color: '#b3560f', vals: c.need });
+      figBox.appendChild(radarFig(DATA.axes, series));
+
+      if (!c) {
+        gapBox.appendChild(noteBox(
+          '진로 분야가 목록에 없거나 아직 정하지 않아 <b>「필요한 수준」 은 그리지 못했습니다.</b> ' +
+          '그래도 「지금 나」 는 그려집니다. 목록에 있는 분야를 고르면 두 그림을 겹쳐 볼 수 있습니다.'));
+        return;
+      }
+      var gaps = JUDGE.gap(now, c.need);
+      gapBox.appendChild(h('h3', '격차가 큰 축부터'));
+      gaps.forEach(function (x) {
+        gapBox.appendChild(h('div.gaprow', [
+          h('div', [h('div.axname', x.name), h('div.axhint', x.hint)]),
+          h('div.small', x.now + ' → ' + x.need),
+          h('div.gapbar', h('i', { style: 'width:' + Math.round(x.gap / 5 * 100) + '%' }))
+        ]));
+      });
+      var top2 = gaps.filter(function (x) { return x.gap > 0; }).slice(0, 2);
+      if (top2.length) {
+        /* 축 이름이 자료에서 오므로 조사를 미리 정할 수 없다 — JOSA 로 「과/와」를 가른다 */
+        var names = top2.map(function (x) { return x.name; });
+        var joined = names.length === 2
+          ? '<b>' + names[0] + '</b>' + JOSA.gwa(names[0]).slice(-1) + ' <b>' + names[1] + '</b>'
+          : '<b>' + names[0] + '</b>';
+        gapBox.appendChild(tipBox('가장 벌어진 곳은 ' + joined +
+          ' 입니다. 이 두 축을 <b>준비 계획</b>에 그대로 옮겨 적으면 ' +
+          '「열심히 하겠다」 가 아닌 계획이 됩니다.'));
+      } else {
+        gapBox.appendChild(tipBox('필요한 수준을 이미 채웠다고 답했습니다. ' +
+          '그렇다면 <b>더 깊이</b> 무엇을 해 볼 수 있을지 준비 계획에 적어 보세요.'));
+      }
+    }
+
+    var axRows = h('div');
+    DATA.axes.forEach(function (a) {
+      var lv = h('div.lvls');
+      for (var i = 1; i <= 5; i++) {
+        (function (v) {
+          var b = h('button.lvl' + (Number(now[a.key]) === v ? '.on' : ''),
+            { type: 'button', title: DATA.levels[v - 1] }, String(v));
+          b.addEventListener('click', function () {
+            now[a.key] = v;
+            saveAns('radar', now);
+            Array.prototype.forEach.call(lv.children, function (x) { x.classList.remove('on'); });
+            b.classList.add('on');
+            repaint();
+          });
+          lv.appendChild(b);
+        })(i);
+      }
+      axRows.appendChild(h('div.axrow', [
+        h('div', [h('div.axname', a.name), h('div.axhint', a.hint)]),
+        lv
+      ]));
+    });
+
+    host.appendChild(card('📊 역량 레이더 — 지금 나와 필요한 수준', [
+      goalBox([
+        '여섯 축에 <b>지금 내 수준</b>을 1~5로 정직하게 표시하세요.',
+        '고른 진로 분야에 <b>필요한 수준</b>이 겹쳐 그려집니다.',
+        '<b>이 자기 평가 점수는 성적에 넣지 않습니다.</b> 준비 계획을 쓰기 위한 재료입니다.'
+      ]),
+      h('p.small', '1 ' + DATA.levels[0] + ' · 2 ' + DATA.levels[1] + ' · 3 ' + DATA.levels[2] +
+                   ' · 4 ' + DATA.levels[3] + ' · 5 ' + DATA.levels[4]),
+      axRows,
+      h('div.hr'),
+      figBox,
+      gapBox,
+      h('div.row', [
+        h('button.btn.ghost', { type: 'button', onclick: function () { showScreen('prep'); } },
+          '✍ 준비 계획 쓰러 가기 →')
+      ])
+    ]));
+    repaint();
+  }
+});
+
+/* ══════════════════════════════════════════════════════════
+   ④ 준비 계획
+   ══════════════════════════════════════════════════════════ */
+REG({
+  id: 'prep', tab: 4, title: '🎒 준비 계획',
+  render: function (host) {
+    var c = myCareer();
+    var now = loadAns('radar', {});
+    var head = [];
+
+    if (c) {
+      var gaps = JUDGE.gap(now, c.need).filter(function (x) { return x.gap > 0; }).slice(0, 2);
+      head.push(h('div.mini-card', [
+        h('h4', '내가 정한 분야 — ' + c.name),
+        h('p.small', { html: '<b>다루는 것</b> — ' + c.tech.join(' · ') }),
+        gaps.length
+          ? h('p.small', { html: '<b>가장 벌어진 축</b> — ' + gaps.map(function (x) {
+              return x.name + '(' + x.now + '→' + x.need + ')';
+            }).join(', ') })
+          : h('p.small', '격차가 큰 축이 없습니다. 더 깊이 해 볼 것을 적어 보세요.')
+      ]));
+    } else {
+      head.push(noteBox('진로 분야가 목록에 없어 필요한 역량을 자동으로 보여 주지 못합니다. ' +
+        '그래도 괜찮습니다 — 그 일에 <b>어떤 데이터와 기술이 쓰이는지</b> 스스로 찾아 적으세요.'));
+    }
+
+    host.appendChild(card('🎒 준비 계획 — 데이터 과학과 관련지어', [
+      goalBox([
+        '이 항목의 기준은 「<b>데이터 과학과 관련지어</b>」 입니다. 과목·활동 이름만 적으면 안 됩니다.',
+        '어떤 <b>데이터</b>를 다루게 되는지, 그것을 다루려면 무엇을 할 수 있어야 하는지 적으세요 — ' +
+        '데이터 정리 · 통계 · 프로그래밍 · 그 분야의 지식 · 데이터 윤리.',
+        '「열심히 공부하겠다」 는 계획이 아닙니다.'
+      ]),
+      head,
+      field('prep_tech', { rows: 4,
+        help: '<b>필요한 데이터 과학 역량과 그 까닭</b> — 이 칸이 이 항목의 핵심입니다. ' +
+              '내가 고른 분야의 데이터가 <b>어떤 모양</b>인지(표·영상·시계열·텍스트) 생각하면 쓰기 쉽습니다.',
+        ph: '예: 진료 기록은 표로 되어 있으니 결측치와 이상치를 다룰 수 있어야 한다. 그래서 스프레드시트와 파이썬 pandas 로 표를 정리하는 연습이 필요하고, 환자 정보를 다루므로 개인정보 보호 규정도 알아야 한다.' }),
+      field('prep_now', { rows: 3,
+        help: '<b>지금 고등학교에서</b> — 이번 학기, 올해에 실제로 할 수 있는 일로 적으세요.',
+        ph: '예: 「데이터 과학」 수업 실습에서 공공데이터포털의 보건 자료를 받아 결측치를 처리해 보고, 동아리 설문 자료를 직접 정리해 본다.' }),
+      field('prep_next', { rows: 3,
+        help: '<b>졸업 뒤</b> — 학과·전공·자격·경험 등. 아직 흐릿해도 방향만 적으면 됩니다.',
+        ph: '예: 보건행정이나 의료정보 관련 전공을 알아보고, 의료 데이터를 다루는 실습이 있는 곳을 찾아본다.' }),
+      tipBox('다 적었으면 <b>Ⅴ 내 보고서</b>에서 여섯 항목을 훑어보고 제출하세요.')
+    ]));
+  }
+});
+</script>

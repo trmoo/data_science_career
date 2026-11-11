@@ -1,0 +1,121 @@
+<!--
+  데이터 과학 영향력 탐구 — Ⅲ 보완 방법
+  © 2026 티쳐무 · 모든 권리 보유
+  보완 주체 분류 · 내 보완 방법 세 칸
+-->
+<script>
+/* ══════════════════════════════════════════════════════════
+   ① 보완 주체 분류 — 누구의 몫인가
+   ══════════════════════════════════════════════════════════ */
+REG({
+  id: 'fixmatch', tab: 3, title: '🛠 누구의 몫인가',
+  render: function (host) {
+    var g = grader('fix-match');
+    var names = DATA.fixSubjects.map(function (s) { return s.name; });
+
+    var list = h('div');
+    DATA.fixCases.forEach(function (c, i) {
+      var s = null;
+      DATA.fixSubjects.forEach(function (x) { if (x.key === c.subj) s = x; });
+      list.appendChild(h('div.fld', [
+        h('div.fld-h', h('b', (i + 1) + '. ' + c.text)),
+        g.pick(names, s.name)
+      ]));
+    });
+
+    var whyList = h('div');
+    DATA.fixCases.forEach(function (c, i) {
+      var s = null;
+      DATA.fixSubjects.forEach(function (x) { if (x.key === c.subj) s = x; });
+      whyList.appendChild(h('p', { html: '<b>' + (i + 1) + '. ' + s.name + '</b> — ' + c.why }));
+    });
+
+    host.appendChild(card('🛠 보완 방법은 누구의 몫인가', [
+      goalBox([
+        '보완 방법을 읽고 <b>개인 · 기술·기업 · 사회·제도</b> 가운데 누구의 몫인지 고르세요.',
+        '「조심하자」 로 끝나는 답을 넘어서기 위한 준비입니다.'
+      ]),
+      table(['주체', '할 수 있는 일'], DATA.fixSubjects.map(function (s) {
+        return [h('b', s.name), s.hint];
+      }), { left: [0, 1], leftHead: true }),
+      h('div.hr'),
+      list,
+      g.verdict(),
+      g.controls(),
+      moreBox('해설 보기 (6문항)', whyList),
+      askBox('세 주체의 힘은 같지 않습니다. <b>기본값을 정하는 쪽</b>이 가장 큰 영향을 주고, ' +
+             '<b>모두에게 같은 선을 긋는 일</b>은 제도만 할 수 있습니다. ' +
+             '그러면 개인이 할 수 있는 몫은 무엇일까요?')
+    ]));
+    g.restore();
+  }
+});
+
+/* ══════════════════════════════════════════════════════════
+   ② 내 보완 방법 — 사슬을 닫는다
+   ══════════════════════════════════════════════════════════ */
+REG({
+  id: 'fix', tab: 3, title: '🔗 내 보완 방법',
+  render: function (host) {
+    var chainBox = h('div');
+    var vbox = h('div.verdict');
+
+    function repaint() {
+      var neg = getVal('neg_me') || getVal('neg_soc') || '';
+      var items = [{
+        kind: '부작용', cls: 'bad',
+        text: neg || '아직 비어 있습니다. [⚖ 양팔 저울] 의 3번 칸을 먼저 채우세요.'
+      }];
+      var keys = [
+        { k: 'fix_me',   lab: '개인' },
+        { k: 'fix_tech', lab: '기술·기업' },
+        { k: 'fix_law',  lab: '사회·제도' }
+      ];
+      var done = 0;
+      keys.forEach(function (x) {
+        var v = getVal(x.k);
+        if (JUDGE.len(v) >= fieldOf(x.k).min) done++;
+        items.push({ kind: x.lab, cls: JUDGE.len(v) >= fieldOf(x.k).min ? 'fix' : '',
+          text: v || '<span class="rpt-miss">아직 비어 있습니다.</span>' });
+      });
+      clear(chainBox);
+      chainBox.appendChild(chainView(items));
+      vbox.className = 'verdict show ' + (done === 3 ? 'ok' : (done ? 'part' : 'no'));
+      vbox.textContent = done === 3
+        ? '세 주체를 모두 적었습니다. 사슬이 닫혔습니다.'
+        : '세 주체 가운데 ' + done + '곳만 적었습니다. 남은 칸이 회색으로 남아 있습니다.';
+    }
+
+    host.appendChild(card('🔗 내 보완 방법 — 세 주체로 나누어', [
+      goalBox([
+        '앞에서 쓴 <b>부정적 영향</b>을 줄일 방법을 세 층위로 나누어 적으세요.',
+        '한 층위만 쓰면 「조심하자」 로 끝나기 쉽습니다.',
+        '<b>이 화면은 세 칸을 채웠는지만 셉니다.</b> 앞의 부정적 영향과 실제로 짝이 맞는지는 ' +
+        '<b>선생님이 글을 읽고</b> 봅니다 — 그러니 글자 수를 채우는 것보다 <b>짝을 맞추는 것</b>이 중요합니다.'
+      ]),
+      chainBox,
+      vbox,
+      h('div.hr'),
+      field('fix_me', { rows: 3,
+        help: '<b>개인</b> — 내가 오늘 바꿀 수 있는 습관·설정. 다만 나만 지켜서는 다른 사람에게는 그대로라는 점도 생각해 보세요.',
+        ph: '예: 잠들기 한 시간 전에는 알림을 끄고, 앱의 위치 권한을 「쓸 때만」 으로 바꾼다. 그러면…',
+        onInput: repaint }),
+      field('fix_tech', { rows: 3,
+        help: '<b>기술·기업</b> — 만드는 쪽이 설계와 기본값으로 할 수 있는 일. 기본값은 대부분의 사람이 건드리지 않으므로 힘이 큽니다.',
+        ph: '예: 위치를 늘 모으지 않고 쓸 때만 묻도록 기본값을 바꾸고, 왜 그렇게 추천했는지 이유를 보여 준다.',
+        onInput: repaint }),
+      field('fix_law', { rows: 3,
+        help: '<b>사회·제도</b> — 법·규칙·공공 서비스로 모두에게 같은 선을 긋는 일.',
+        ph: '예: 얼마나 모을 수 있는지 한계를 법으로 정하고, 앱을 못 쓰는 사람을 위한 창구를 반드시 함께 두게 한다.',
+        onInput: repaint }),
+      inCourse('compass')
+        ? tipBox('세 칸을 채웠으면 다음은 <b>Ⅳ 진로 설계</b>입니다. ' +
+                 '이런 문제를 <b>다루는 일</b>이 곧 직업이 됩니다 — 누가 기본값을 정하고, 누가 제도를 설계할까요?')
+        : tipBox('세 칸을 채웠으면 <b>Ⅴ 내 보고서</b>에서 훑어보고 제출하세요.<br>' +
+                 '생각해 볼 것 — 이런 문제를 <b>다루는 일</b>이 곧 직업이 됩니다. ' +
+                 '누가 기본값을 정하고, 누가 제도를 설계할까요?')
+    ]));
+    repaint();
+  }
+});
+</script>

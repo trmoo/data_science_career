@@ -1,0 +1,738 @@
+<!--
+  데이터 과학 영향력 탐구 — 화면 부품 (DOM · 서술 칸 · 채점 위젯 · SVG)
+  © 2026 티쳐무 · 모든 권리 보유
+  ⚠ 화면 모듈(s1~s5)에서 window.addEventListener('resize', …) 나 setInterval 을
+     직접 쓰지 말 것. 탭을 옮겨도 살아남아 쌓인다. onResize()·screenTimer() 를 쓴다.
+-->
+<script>
+/* ════════════════════════════════════════════════════════════
+   1. DOM 만들기
+   ════════════════════════════════════════════════════════════ */
+/**
+ * h('div.card', {id:'x'}, [자식…]) — 태그 이름에 .클래스 를 붙여 쓸 수 있다.
+ * 문자열 자식은 innerHTML 이 아니라 텍스트로 들어간다(안전).
+ * HTML 을 넣어야 하면 {html:'…'} 를 쓴다.
+ */
+function h(sel, attrs, kids) {
+  var parts = String(sel).split('.');
+  var node = document.createElement(parts[0] || 'div');
+  for (var i = 1; i < parts.length; i++) if (parts[i]) node.classList.add(parts[i]);
+  if (attrs && (Array.isArray(attrs) || typeof attrs === 'string' ||
+                typeof attrs === 'number' || attrs.nodeType)) {
+    kids = attrs; attrs = null;
+  }
+  if (attrs) {
+    Object.keys(attrs).forEach(function (k) {
+      var v = attrs[k];
+      if (v == null || v === false) return;
+      if (k === 'html') node.innerHTML = v;
+      else if (k === 'text') node.textContent = v;
+      else if (k === 'cls') node.className += (node.className ? ' ' : '') + v;
+      else if (k === 'style') node.setAttribute('style', v);
+      else if (k.slice(0, 2) === 'on' && typeof v === 'function') node.addEventListener(k.slice(2), v);
+      else node.setAttribute(k, v);
+    });
+  }
+  add(node, kids);
+  return node;
+}
+
+function add(node, kids) {
+  if (kids == null || kids === false) return node;
+  if (Array.isArray(kids)) { kids.forEach(function (k) { add(node, k); }); return node; }
+  if (typeof kids === 'string' || typeof kids === 'number') {
+    node.appendChild(document.createTextNode(String(kids)));
+    return node;
+  }
+  if (kids.nodeType) node.appendChild(kids);
+  return node;
+}
+
+function mono(t) { return h('span.mono', String(t)); }
+function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); return node; }
+
+/* ════════════════════════════════════════════════════════════
+   2. 화면 등록과 수명 관리
+   ════════════════════════════════════════════════════════════ */
+var SCREENS = [];
+/** 화면 하나를 등록한다. {id, tab, title, render(host)} */
+function REG(def) { SCREENS.push(def); }
+
+var LIFE = { resizers: [], timers: [] };
+
+function endScreen() {
+  LIFE.resizers.forEach(function (f) { window.removeEventListener('resize', f); });
+  LIFE.timers.forEach(function (t) { clearInterval(t); });
+  LIFE = { resizers: [], timers: [] };
+}
+
+function onResize(fn) {
+  window.addEventListener('resize', fn);
+  LIFE.resizers.push(fn);
+}
+
+function screenTimer(fn, ms) {
+  var t = setInterval(fn, ms);
+  LIFE.timers.push(t);
+  return t;
+}
+
+/* ════════════════════════════════════════════════════════════
+   3. 학생이 쓴 것을 담아 두는 곳
+   ════════════════════════════════════════════════════════════ */
+var STORE = {
+  vals: {},      // 서술 칸  { pos_me: '…' }
+  answers: {},   // 활동의 풀이 상태 (이어서 하기용)
+  scores: {},    // { 'neg-sort': {g:5, a:true} }
+  acts: {},      // 서버가 준 활동 기준표
+  fields: {},    // 서버가 준 서술 칸 기준표
+  course: null,  // 이번 차시에 열어 줄 범위 (Code.gs 의 COURSE). null 이면 전부
+  dirty: false,
+  onChange: function () {}
+};
+
+function actOf(key) {
+  var a = STORE.acts[key];
+  if (!a) console.warn('[데이터 과학 영향력 탐구] 알 수 없는 활동 이름: ' + key);
+  return a || { key: key, tab: 0, max: 0, label: key };
+}
+
+function fieldOf(key) {
+  var f = STORE.fields[key];
+  if (!f) console.warn('[데이터 과학 영향력 탐구] 알 수 없는 서술 칸: ' + key);
+  return f || { key: key, no: '?', tab: 0, title: key, min: 0 };
+}
+
+/* ── 차시 범위 ──────────────────────────────────────────
+   Code.gs 의 COURSE 가 정한 범위. 비어 있으면 전부 열린 것으로 본다. */
+function courseFieldKeys() {
+  var c = STORE.course;
+  return (c && c.fields && c.fields.length) ? c.fields : Object.keys(STORE.fields);
+}
+function courseActKeys() {
+  var c = STORE.course;
+  return (c && c.acts && c.acts.length) ? c.acts : Object.keys(STORE.acts);
+}
+/** 이 화면이 이번 차시에 열려 있는가 — 화면 사이 안내 문구를 켜고 끌 때도 쓴다 */
+function inCourse(screenId) {
+  var c = STORE.course;
+  if (!c || !c.screens || !c.screens.length) return true;
+  return c.screens.indexOf(screenId) >= 0;
+}
+
+function getVal(key) { return STORE.vals[key] == null ? '' : STORE.vals[key]; }
+
+function saveVal(key, v) {
+  if (STORE.vals[key] === v) return;
+  STORE.vals[key] = v;
+  STORE.dirty = true;
+  STORE.onChange();
+}
+
+function saveAns(key, value) {
+  STORE.answers[key] = value;
+  STORE.dirty = true;
+  STORE.onChange();
+}
+
+function loadAns(key, def) {
+  var v = STORE.answers[key];
+  return v === undefined ? def : v;
+}
+
+/** 점수를 적는다. 서버에서도 만점으로 한 번 더 자른다. */
+function setScore(key, got, attempted) {
+  var a = actOf(key);
+  var g = Math.max(0, Math.min(a.max, Math.round(got || 0)));
+  var cur = STORE.scores[key];
+  var at = attempted === undefined ? true : !!attempted;
+  if (cur && cur.g === g && cur.a === at) return;
+  STORE.scores[key] = { g: g, a: at };
+  STORE.dirty = true;
+  STORE.onChange();
+}
+
+function getScore(key) { return STORE.scores[key] || { g: 0, a: false }; }
+
+function tabScore(tabNo) {
+  var got = 0, max = 0, tried = 0;
+  courseActKeys().forEach(function (k) {
+    var a = STORE.acts[k];
+    if (!a || a.tab !== tabNo) return;
+    max += a.max;
+    var s = getScore(k);
+    got += s.g;
+    if (s.a) tried++;
+  });
+  return { got: got, max: max, tried: tried };
+}
+
+function totalScore() {
+  var got = 0, max = 0, tried = 0;
+  courseActKeys().forEach(function (k) {
+    if (!STORE.acts[k]) return;
+    max += STORE.acts[k].max;
+    var s = getScore(k);
+    got += s.g;
+    if (s.a) tried++;
+  });
+  return { got: got, max: max, tried: tried };
+}
+
+/** 서술 칸 채운 정도 */
+function fieldStat() {
+  var keys = courseFieldKeys();
+  var filled = 0, enough = 0, chars = 0;
+  keys.forEach(function (k) {
+    var n = JUDGE.len(getVal(k));
+    chars += n;
+    if (n > 0) filled++;
+    if (n >= STORE.fields[k].min) enough++;
+  });
+  return { n: keys.length, filled: filled, enough: enough, chars: chars };
+}
+
+/** 전체 진행률 — 서버의 계산과 같은 식이다 (채운 칸 + 손댄 활동) ÷ 전체 */
+function progressPct() {
+  var f = fieldStat(), t = totalScore();
+  var steps = f.n + courseActKeys().length;
+  if (!steps) return 0;
+  return Math.round((f.filled + t.tried) / steps * 1000) / 10;
+}
+
+/* ════════════════════════════════════════════════════════════
+   4. 서술 칸 — 이 앱에서 학생이 가장 많이 쓰는 부품
+   ════════════════════════════════════════════════════════════ */
+/**
+ * field('pos_me', {rows:3, ph:'…', short:true, help:'…'})
+ * 글자 수를 세어 기준을 넘으면 초록으로 바뀌고, 뭉뚱그린 표현이 있으면 알려 준다.
+ */
+function field(key, opt) {
+  opt = opt || {};
+  var f = fieldOf(key);
+  var wrap = h('div.fld');
+  var count = h('span.cnt');
+  var warn = h('div.vwarn');
+
+  var box = opt.short
+    ? h('input.ta.one', { type: 'text', value: getVal(key), placeholder: opt.ph || '',
+        'aria-label': f.title })
+    : h('textarea.ta', { rows: opt.rows || 3, placeholder: opt.ph || '', 'aria-label': f.title });
+  if (!opt.short) box.value = getVal(key);
+
+  function paint() {
+    var v = box.value;
+    var n = JUDGE.len(v);
+    var ok = n >= f.min;
+    count.textContent = n + '자 / 기준 ' + f.min + '자';
+    count.className = 'cnt' + (ok ? ' ok' : (n > 0 ? ' part' : ''));
+    box.classList.remove('ok', 'part');
+    if (ok) box.classList.add('ok');
+    else if (n > 0) box.classList.add('part');
+
+    var vg = JUDGE.vague(v);
+    clear(warn);
+    warn.classList.remove('show');
+    if (vg.length) {
+      warn.classList.add('show');
+      add(warn, '뭉뚱그린 표현이 보입니다 — ');
+      vg.slice(0, 3).forEach(function (w, i) {
+        if (i) add(warn, ', ');
+        add(warn, h('b', '「' + w + '」'));
+      });
+      add(warn, '. 사례가 아니라 인상입니다. 무엇을 가리키는지 적어 주세요.');
+    }
+  }
+
+  box.addEventListener('input', function () {
+    paint();
+    saveVal(key, box.value);
+    if (opt.onInput) opt.onInput(box.value);
+  });
+
+  wrap.appendChild(h('div.fld-h', [
+    h('b', f.no + ' ' + (opt.title || f.title)),
+    count
+  ]));
+  if (opt.help) wrap.appendChild(h('p.fld-help', { html: opt.help }));
+  wrap.appendChild(box);
+  wrap.appendChild(warn);
+  paint();
+  return wrap;
+}
+
+/** 서술 칸 여러 개를 한 번에 */
+function fields(list) {
+  return list.map(function (it) {
+    return typeof it === 'string' ? field(it) : field(it.key, it);
+  });
+}
+
+/* ════════════════════════════════════════════════════════════
+   5. 채점 위젯 — 모든 [확인] 단추가 이것을 쓴다
+   ════════════════════════════════════════════════════════════ */
+/**
+ * grader('neg-sort') 를 만들고
+ *   g.sel(고를값들, 정답, 옵션)  → <select>
+ *   g.pick(보기배열, 정답, 옵션) → 여러 보기 가운데 하나 고르기 (기본 선택 없음)
+ *   g.custom({node, get, cmp, set, mark}) → 직접 만든 부품
+ *   g.controls() / g.verdict()
+ * ⚠ 등록한 칸 수와 서버 ACTIVITIES 의 max 가 같아야 한다 — 다르면 콘솔에 경고가 뜬다.
+ */
+function grader(key, opt) {
+  opt = opt || {};
+  var items = [], vbox = null, host = { key: key };
+  var saved = loadAns(key, null);
+
+  function slot(i) { return (saved && saved[i] !== undefined) ? saved[i] : ''; }
+  function collect() { return items.map(function (it) { return it.get(); }); }
+  function register(it) { items.push(it); return items.length - 1; }
+
+  host.sel = function (options, ans, o) {
+    o = o || {};
+    var i = items.length;
+    var sel = h('select.bl', { 'aria-label': o.label || ('고르기 ' + (i + 1)),
+      onchange: function () { sel.classList.remove('ok', 'no'); } });
+    sel.appendChild(h('option', { value: '' }, o.ph || '고르기'));
+    options.forEach(function (v) { sel.appendChild(h('option', { value: String(v) }, String(v))); });
+    sel.value = slot(i);
+    register({
+      node: sel,
+      get: function () { return sel.value; },
+      set: function (v) { sel.value = v == null ? '' : v; },
+      cmp: function (v) { return String(v) === String(ans); },
+      mark: function (ok) { sel.classList.remove('ok', 'no'); sel.classList.add(ok ? 'ok' : 'no'); },
+      answer: String(ans)
+    });
+    return sel;
+  };
+
+  host.pick = function (options, ans, o) {
+    o = o || {};
+    var i = items.length;
+    var cur = slot(i);
+    var wrap = h('div.cards' + (o.cls ? '.' + o.cls : ''));
+    var btns = {};
+    options.forEach(function (lab) {
+      var b = h('button.dcard', { type: 'button' }, lab);
+      if (cur === lab) b.classList.add('on');
+      b.addEventListener('click', function () {
+        cur = lab;
+        Object.keys(btns).forEach(function (k) { btns[k].classList.remove('on', 'ok', 'no'); });
+        b.classList.add('on');
+        if (o.onPick) o.onPick(lab);
+      });
+      btns[lab] = b;
+      wrap.appendChild(b);
+    });
+    register({
+      node: wrap,
+      get: function () { return cur; },
+      set: function (v) { if (btns[v]) btns[v].click(); },
+      cmp: function (v) { return String(v) === String(ans); },
+      mark: function (ok) {
+        if (!cur || !btns[cur]) return;
+        btns[cur].classList.remove('on');
+        btns[cur].classList.add(ok ? 'ok' : 'no');
+      },
+      answer: String(ans)
+    });
+    return wrap;
+  };
+
+  host.custom = function (spec) {
+    register({
+      node: spec.node || null,
+      get: spec.get,
+      set: spec.set || function () {},
+      cmp: spec.cmp,
+      mark: spec.mark || function () {},
+      answer: spec.answer == null ? '' : spec.answer
+    });
+    return spec.node || null;
+  };
+
+  host.verdict = function () {
+    if (!vbox) vbox = h('div.verdict', { role: 'status', 'aria-live': 'polite' });
+    return vbox;
+  };
+
+  /** 채점 — silent 를 주면 화면을 건드리지 않고 점수만 계산한다 */
+  host.check = function (silent) {
+    var vals = collect(), got = 0;
+    items.forEach(function (it, i) {
+      var ok = false;
+      try { ok = !!it.cmp(vals[i]); } catch (e) { ok = false; }
+      if (ok) got++;
+      if (!silent) it.mark(ok);
+    });
+    var max = actOf(key).max;
+    saveAns(key, vals);
+    setScore(key, got, true);
+    if (!silent) {
+      var v = host.verdict();
+      v.className = 'verdict show ' + (got === items.length ? 'ok' : (got > 0 ? 'part' : 'no'));
+      v.textContent = got === items.length
+        ? '모두 맞았습니다. ' + got + ' / ' + items.length + '점'
+        : got + ' / ' + items.length + '점 — 틀린 곳을 다시 살펴보세요.';
+      if (items.length !== max) {
+        console.warn('[데이터 과학 영향력 탐구] ' + key + ' 의 칸 수(' + items.length +
+                     ')와 만점(' + max + ')이 다릅니다.');
+      }
+      if (opt.onCheck) opt.onCheck(got, items.length);
+    }
+    return { got: got, of: items.length };
+  };
+
+  host.reveal = function () {
+    items.forEach(function (it) { if (it.set) it.set(it.answer); });
+    host.check();
+    var v = host.verdict();
+    v.className = 'verdict show part';
+    v.textContent = '정답을 채웠습니다. 점수는 방금 [확인] 을 눌렀을 때의 결과로 남습니다. ' +
+                    '왜 그렇게 되는지 설명을 다시 읽어 보세요.';
+  };
+
+  host.reset = function () {
+    items.forEach(function (it) {
+      if (it.set) it.set('');
+      if (it.node && it.node.classList) it.node.classList.remove('ok', 'no');
+      if (it.node && it.node.querySelectorAll) {
+        Array.prototype.forEach.call(it.node.querySelectorAll('.dcard'), function (b) {
+          b.classList.remove('on', 'ok', 'no');
+        });
+      }
+    });
+    var v = host.verdict();
+    v.className = 'verdict';
+    v.textContent = '';
+  };
+
+  host.controls = function (o) {
+    o = o || {};
+    var row = h('div.row');
+    row.appendChild(h('button.btn', { type: 'button', onclick: function () { host.check(); } }, '확인'));
+    if (!o.noReveal) {
+      row.appendChild(h('button.btn.ghost', { type: 'button', onclick: function () {
+        ask('정답 보기', '정답을 채워 볼까요?<br>지금까지 [확인] 으로 받은 점수는 <b>그대로 남습니다</b>.',
+            function () { host.reveal(); }, '정답 채우기');
+      } }, '정답 보기'));
+    }
+    row.appendChild(h('button.btn.gray', { type: 'button', onclick: function () { host.reset(); } }, '다시 하기'));
+    row.appendChild(h('span.small.grow', { style: 'text-align:right' },
+      '만점 ' + actOf(key).max + '점'));
+    return row;
+  };
+
+  host.count = function () { return items.length; };
+  host.restore = function () { if (saved) host.check(true); };
+  return host;
+}
+
+/** 활동 하나의 현재 점수 배지 */
+function scoreBadge(key) {
+  var a = actOf(key), s = getScore(key);
+  var cls = s.g === a.max ? 'ok' : (s.a ? 'part' : 'no');
+  return h('span.badge.' + cls, s.a ? (s.g + ' / ' + a.max + '점') : ('아직 안 함 · ' + a.max + '점'));
+}
+
+/* ════════════════════════════════════════════════════════════
+   6. 자주 쓰는 상자
+   ════════════════════════════════════════════════════════════ */
+function goalBox(lines) {
+  return h('div.goal', [
+    h('b', '이 화면에서 할 일'),
+    h('ul', lines.map(function (t) { return h('li', { html: t }); }))
+  ]);
+}
+function noteBox(html) { return h('div.note', { html: html }); }
+function tipBox(html) { return h('div.tip', { html: html }); }
+function askBox(html) { return h('div.ask', { html: html }); }
+function card(title, kids) {
+  var c = h('div.card');
+  if (title) c.appendChild(h('h3', title));
+  add(c, kids);
+  return c;
+}
+function moreBox(title, kids) {
+  var d = h('details.more');
+  d.appendChild(h('summary', title));
+  add(d, kids);
+  return d;
+}
+function table(head, rows, opt) {
+  opt = opt || {};
+  var t = h('table.t');
+  if (head) {
+    var thead = h('thead'), tr = h('tr');
+    head.forEach(function (x) { add(tr, h('th' + (opt.leftHead ? '.l' : ''), x && x.nodeType ? x : String(x))); });
+    thead.appendChild(tr); t.appendChild(thead);
+  }
+  var tb = h('tbody');
+  rows.forEach(function (r) {
+    var tr2 = h('tr');
+    r.forEach(function (c, i) {
+      var td = h('td' + (opt.left && opt.left.indexOf(i) >= 0 ? '.l' : ''));
+      add(td, c && c.nodeType ? c : (c == null ? '' : String(c)));
+      tr2.appendChild(td);
+    });
+    tb.appendChild(tr2);
+  });
+  t.appendChild(tb);
+  return h('div.tw', t);
+}
+
+/* ════════════════════════════════════════════════════════════
+   6-2. 앱 안에서 뜨는 창 (alert·confirm·prompt 를 대신한다)
+   ⚠ 브라우저 기본 alert/confirm/prompt 를 쓰지 말 것.
+      앱스 스크립트 웹앱은 googleusercontent.com iframe 안에서 돌기 때문에
+      크롬이 「…googleusercontent.com 에 삽입된 페이지 내용:」 이라는 주소를 앞에 붙인다.
+      학생에게 그 주소를 보이지 않으려고 창을 직접 만들었다.
+   ════════════════════════════════════════════════════════════ */
+var MODAL = null;
+
+/**
+ * modal({
+ *   title:'제목', text:'설명'(HTML 가능),
+ *   fields:[{key,label,type,ph}],        // 없으면 확인 창
+ *   ok:'확인', cancel:'취소'(null 이면 확인만),
+ *   onOk:function(values){ return '오류 문구' 또는 아무것도 }  // 문구를 돌려주면 창이 닫히지 않는다
+ * })
+ */
+function modal(opt) {
+  opt = opt || {};
+  if (MODAL) closeModal();
+
+  var inputs = {};
+  var err = h('div.mdl-err');
+  var body = h('div.mdl');
+
+  body.appendChild(h('h3', opt.title || '알림'));
+  if (opt.text) body.appendChild(h('p.mdl-t', { html: opt.text }));
+
+  (opt.fields || []).forEach(function (f) {
+    body.appendChild(h('label.mdl-l', f.label));
+    var inp = h('input.mdl-i', { type: f.type || 'text', placeholder: f.ph || '',
+      'aria-label': f.label });
+    inputs[f.key] = inp;
+    body.appendChild(inp);
+  });
+  body.appendChild(err);
+
+  function values() {
+    var v = {};
+    Object.keys(inputs).forEach(function (k) { v[k] = inputs[k].value; });
+    return v;
+  }
+  function go() {
+    var msg = opt.onOk ? opt.onOk(values()) : null;
+    if (msg) { err.textContent = msg; err.classList.add('show'); return; }
+    closeModal();
+  }
+
+  var row = h('div.mdl-btns');
+  if (opt.cancel !== null) {
+    row.appendChild(h('button.btn.gray', { type: 'button', onclick: function () {
+      closeModal();
+      if (opt.onCancel) opt.onCancel();
+    } }, opt.cancel || '취소'));
+  }
+  var okBtn = h('button.btn', { type: 'button', onclick: go }, opt.ok || '확인');
+  row.appendChild(okBtn);
+  body.appendChild(row);
+
+  Object.keys(inputs).forEach(function (k) {
+    inputs[k].addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
+  });
+
+  MODAL = h('div.mdl-back', { onclick: function (e) { if (e.target === MODAL) closeModal(); } }, body);
+  MODAL._esc = function (e) { if (e.key === 'Escape') closeModal(); };
+  document.addEventListener('keydown', MODAL._esc);
+  document.body.appendChild(MODAL);
+
+  var first = Object.keys(inputs)[0];
+  setTimeout(function () { (first ? inputs[first] : okBtn).focus(); }, 40);
+  return { close: closeModal };
+}
+
+function closeModal() {
+  if (!MODAL) return;
+  document.removeEventListener('keydown', MODAL._esc);
+  if (MODAL.parentNode) MODAL.parentNode.removeChild(MODAL);
+  MODAL = null;
+}
+
+/** 알려 주기만 하는 창 */
+function say(title, text, after) {
+  modal({ title: title, text: text, cancel: null, ok: '확인',
+          onOk: function () { if (after) setTimeout(after, 0); } });
+}
+
+/** 물어보는 창 — 「예」를 누르면 onYes 를 부른다 */
+function ask(title, text, onYes, okLabel) {
+  modal({ title: title, text: text, ok: okLabel || '네', cancel: '아니요',
+          onOk: function () { setTimeout(onYes, 0); } });
+}
+
+var TOAST = null;
+function toast(msg) {
+  if (!TOAST) { TOAST = h('div.toast'); document.body.appendChild(TOAST); }
+  TOAST.textContent = msg;
+  TOAST.classList.add('show');
+  clearTimeout(TOAST._t);
+  TOAST._t = setTimeout(function () { TOAST.classList.remove('show'); }, 2100);
+}
+
+function bar(pct, green) {
+  return h('div.bar' + (green ? '.g' : ''),
+    h('i', { style: 'width:' + Math.max(0, Math.min(100, pct)) + '%' }));
+}
+
+/** 이름 없이 개수만 보여 주는 막대 목록 */
+function distBars(rows) {
+  var top = 1;
+  rows.forEach(function (r) { top = Math.max(top, r.count); });
+  var box = h('div.dist');
+  rows.forEach(function (r) {
+    box.appendChild(h('div.dist-row', [
+      h('span.dist-n', r.name),
+      h('span.dist-b', h('i', { style: 'width:' + Math.round(r.count / top * 100) + '%' })),
+      h('span.dist-c', r.count + '명')
+    ]));
+  });
+  return box;
+}
+
+/* ════════════════════════════════════════════════════════════
+   7. SVG 그림
+   ════════════════════════════════════════════════════════════ */
+var SVGNS = 'http://www.w3.org/2000/svg';
+function sv(name, attrs) {
+  var n = document.createElementNS(SVGNS, name);
+  if (attrs) Object.keys(attrs).forEach(function (k) {
+    if (attrs[k] == null) return;
+    if (k.slice(0, 2) === 'on' && typeof attrs[k] === 'function') n.addEventListener(k.slice(2), attrs[k]);
+    else n.setAttribute(k, attrs[k]);
+  });
+  return n;
+}
+function figure(w, hgt) {
+  return sv('svg', { class: 'fig', viewBox: '0 0 ' + w + ' ' + hgt, width: w, height: hgt });
+}
+function svText(x, y, t, cls) {
+  var n = sv('text', { class: cls || 'ft', x: x, y: y });
+  n.textContent = String(t);
+  return n;
+}
+
+/* ── 양팔 저울 ────────────────────────────────────────────
+   pos·neg = 각 쪽에 올라간 칸 수(0~2). 기울기는 두 값의 차이로 정한다. */
+function scaleFig(pos, neg, per) {
+  var W = 520, H = 260;
+  var svg = figure(W, H);
+  var cx = W / 2, top = 74, armLen = 168;
+  var deg = Math.max(-14, Math.min(14, (neg - pos) * 7));   /* 무거운 쪽이 내려간다 */
+  var rad = deg * Math.PI / 180;
+
+  svg.appendChild(sv('line', { class: 'sc-post', x1: cx, y1: top, x2: cx, y2: H - 34 }));
+  svg.appendChild(sv('path', { class: 'sc-base', d: 'M' + (cx - 56) + ',' + (H - 30) +
+                                                 ' L' + (cx + 56) + ',' + (H - 30) }));
+
+  var lx = cx - armLen * Math.cos(rad), ly = top + armLen * Math.sin(rad) * -1;
+  var rx = cx + armLen * Math.cos(rad), ry = top - armLen * Math.sin(rad) * -1;
+  svg.appendChild(sv('line', { class: 'sc-arm', x1: lx, y1: ly, x2: rx, y2: ry }));
+  svg.appendChild(sv('circle', { class: 'sc-pin', cx: cx, cy: top, r: 7 }));
+
+  [{ x: lx, y: ly, n: pos, lab: '긍정', cls: 'pos' },
+   { x: rx, y: ry, n: neg, lab: '부정', cls: 'neg' }].forEach(function (p) {
+    svg.appendChild(sv('line', { class: 'sc-wire', x1: p.x, y1: p.y, x2: p.x, y2: p.y + 40 }));
+    svg.appendChild(sv('rect', { class: 'sc-pan ' + p.cls, x: p.x - 54, y: p.y + 40, width: 108, height: 34, rx: 8 }));
+    svg.appendChild(svText(p.x, p.y + 62, p.lab + ' ' + p.n + '칸', 'ft b'));
+  });
+
+  var wrap = h('div.figwrap', svg);
+  if (per) {
+    var ul = h('div.sc-list');
+    per.forEach(function (p) {
+      ul.appendChild(h('span.sc-chip' + (p.ok ? '.on' : ''),
+        (p.ok ? '✓ ' : '· ') + p.label + ' ' + p.len + '자'));
+    });
+    wrap.appendChild(ul);
+  }
+  return wrap;
+}
+
+/* ── 역량 레이더 ──────────────────────────────────────────
+   axes = DATA.axes, series = [{name, color, vals:{축키:1~5}, fill}] */
+function radarFig(axes, series, opt) {
+  opt = opt || {};
+  var W = opt.w || 420, H = opt.h || 380;
+  var cx = W / 2, cy = H / 2 + 6, R = Math.min(W, H) / 2 - 62;
+  var svg = figure(W, H);
+  var n = axes.length, maxV = 5;
+
+  function pt(i, v) {
+    var a = -Math.PI / 2 + i * 2 * Math.PI / n;
+    var r = R * (v / maxV);
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  }
+
+  for (var g = 1; g <= maxV; g++) {
+    var d = '';
+    for (var i = 0; i < n; i++) {
+      var p = pt(i, g);
+      d += (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1);
+    }
+    svg.appendChild(sv('path', { class: 'rd-grid' + (g === maxV ? ' out' : ''), d: d + 'Z' }));
+  }
+  for (var j = 0; j < n; j++) {
+    var e = pt(j, maxV);
+    svg.appendChild(sv('line', { class: 'rd-spoke', x1: cx, y1: cy, x2: e[0], y2: e[1] }));
+    var lp = pt(j, maxV + 0.85);
+    var tx = svText(lp[0], lp[1] + 4, axes[j].name, 'rd-lab');
+    tx.setAttribute('text-anchor', lp[0] > cx + 6 ? 'start' : (lp[0] < cx - 6 ? 'end' : 'middle'));
+    svg.appendChild(tx);
+  }
+
+  series.forEach(function (s) {
+    var d = '';
+    for (var i = 0; i < n; i++) {
+      var v = Number(s.vals[axes[i].key]) || 0;
+      var p = pt(i, v);
+      d += (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1);
+    }
+    svg.appendChild(sv('path', { class: 'rd-area', d: d + 'Z', stroke: s.color,
+      fill: s.fill || 'none', 'fill-opacity': s.fill ? 0.18 : 0 }));
+    for (var k = 0; k < n; k++) {
+      var v2 = Number(s.vals[axes[k].key]) || 0;
+      if (!v2) continue;
+      var q = pt(k, v2);
+      svg.appendChild(sv('circle', { class: 'rd-dot', cx: q[0], cy: q[1], r: 4, fill: s.color }));
+    }
+  });
+
+  var wrap = h('div.figwrap', svg);
+  var leg = h('div.legend');
+  series.forEach(function (s) {
+    leg.appendChild(h('span.lg', [
+      h('i', { style: 'background:' + s.color }), s.name
+    ]));
+  });
+  wrap.appendChild(leg);
+  return wrap;
+}
+
+/* ── 영향 사슬 (도미노) ──────────────────────────────────
+   items = [{kind, text, cls}] — 위에서 아래로 이어진다 */
+function chainView(items) {
+  var box = h('div.chain');
+  items.forEach(function (it, i) {
+    if (i) box.appendChild(h('div.chain-ar', '↓'));
+    box.appendChild(h('div.chain-box' + (it.cls ? '.' + it.cls : ''), [
+      h('span.chain-kind', it.kind),
+      h('div', { html: it.text })
+    ]));
+  });
+  return box;
+}
+</script>

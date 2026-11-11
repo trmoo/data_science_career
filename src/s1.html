@@ -1,0 +1,191 @@
+<!--
+  데이터 과학 영향력 탐구 — Ⅰ 시간 여행
+  © 2026 티쳐무 · 모든 권리 보유
+  타임머신 슬라이더 · 변화 읽기 · 나만의 타임라인
+-->
+<script>
+/* ══════════════════════════════════════════════════════════
+   ① 타임머신 — 같은 일이 시대마다 어떻게 달라졌나
+   ══════════════════════════════════════════════════════════ */
+REG({
+  id: 'tm', tab: 1, title: '🕰 타임머신',
+  render: function (host) {
+    var pickKey = loadAns('tm-view', DATA.timeline[0].key);
+    var eraIdx = 0;
+
+    host.appendChild(card('🕰 타임머신 — 30년을 앞뒤로 움직여 보기', [
+      goalBox([
+        '분야를 하나 고르고 슬라이더를 끌어 <b>1995 → 2010 → 2026</b> 을 지나가 보세요.',
+        '아래쪽 <b>「무엇이 데이터였나」</b> 줄을 꼭 읽어 보세요. 이 수업의 핵심입니다.',
+        '<b>2040 칸은 비어 있습니다.</b> 정답이 없는 칸이니 내 생각을 적어 보세요.'
+      ]),
+      (function () {
+        var fieldRow = h('div.cards');
+        var eraBox = h('div');
+        var slider = h('input.slider', { type: 'range', min: 0, max: 3, step: 1, value: 0,
+          'aria-label': '시대 고르기' });
+
+        function paint() {
+          var f = null;
+          DATA.timeline.forEach(function (t) { if (t.key === pickKey) f = t; });
+          if (!f) f = DATA.timeline[0];
+          var era = DATA.eras[eraIdx];
+          var row = f.rows[eraIdx];
+
+          clear(eraBox);
+          eraBox.appendChild(h('div.tmbar', [
+            h('span.era-head', era.label),
+            h('span.era-note', era.note)
+          ]));
+
+          if (era.open) {
+            eraBox.appendChild(h('div.tl-open', [
+              h('b', '2040년의 「' + f.name + '」' + JOSA.eun(f.name).slice(-1) +
+                     ' 어떤 모습일까요?'),
+              h('p.small', { style: 'margin:4px 0 0',
+                html: '아무도 모릅니다. 예측이 맞았는지로 점수를 주지 않습니다. ' +
+                      '다만 <b>왜 그렇게 볼 수 있는지</b> 근거를 함께 생각해 보세요.' }),
+              h('p.small', { style: 'margin:4px 0 0' },
+                '생각이 정리되면 [✍ 나만의 타임라인] 화면에서 적습니다.')
+            ]));
+          } else {
+            eraBox.appendChild(h('div.tl-row.now', [
+              h('span.tl-yr', era.year),
+              h('div', [
+                h('div.tl-what', row.what),
+                h('div.tl-data', '무엇이 데이터였나 — ' + row.data)
+              ])
+            ]));
+          }
+
+          /* 지나온 시대를 표로 함께 보여 준다 */
+          var tl = h('div.tl');
+          f.rows.forEach(function (r, i) {
+            if (i > eraIdx) return;
+            if (DATA.eras[i].open) return;
+            tl.appendChild(h('div.tl-row' + (i === eraIdx ? '.now' : ''), [
+              h('span.tl-yr', DATA.eras[i].year),
+              h('div', [
+                h('div.tl-what', r.what),
+                h('div.tl-data', r.data)
+              ])
+            ]));
+          });
+          eraBox.appendChild(h('div.hr'));
+          eraBox.appendChild(h('p.small', '지나온 길'));
+          eraBox.appendChild(tl);
+        }
+
+        DATA.timeline.forEach(function (t) {
+          var b = h('button.dcard' + (t.key === pickKey ? '.on' : ''), { type: 'button' },
+            t.icon + ' ' + t.name);
+          b.addEventListener('click', function () {
+            pickKey = t.key;
+            saveAns('tm-view', pickKey);
+            Array.prototype.forEach.call(fieldRow.children, function (c) { c.classList.remove('on'); });
+            b.classList.add('on');
+            paint();
+          });
+          fieldRow.appendChild(b);
+        });
+
+        slider.addEventListener('input', function () {
+          eraIdx = Number(slider.value) || 0;
+          paint();
+        });
+
+        paint();
+        return [fieldRow, h('div.tmbar', [h('span.small', '1995'), slider, h('span.small', '2040')]), eraBox];
+      })(),
+      tipBox('여섯 분야를 다 눌러 보면 같은 이야기가 되풀이되는 것이 보입니다 — ' +
+             '<b>사람의 기억과 종이에 있던 것이 데이터가 되고, 그 데이터가 다시 다음 일을 결정합니다.</b>')
+    ]));
+  }
+});
+
+/* ══════════════════════════════════════════════════════════
+   ② 변화 읽기 — 새로 생긴 데이터
+   ══════════════════════════════════════════════════════════ */
+REG({
+  id: 'tmquiz', tab: 1, title: '🔎 변화 읽기',
+  render: function (host) {
+    /* ⚠ 예전에 있던 「무엇이 먼저인가」(둘 가운데 더 오래된 것 고르기, tm-order) 는
+       너무 쉬워서 없앴다(2026-08-24 사용자 판단). 이 화면은 「변화 읽기」 하나다. */
+    var g2 = grader('tm-change');
+    var why2 = h('div');
+    var box2 = card('📈 변화 읽기 — 새로 생긴 데이터는?', [
+      goalBox(['옛 방식이 새 방식으로 바뀔 때 <b>새로 생긴 데이터</b>를 고르세요.',
+               '예전에도 있던 것은 답이 아닙니다.']),
+      (function () {
+        var wrap = h('div');
+        DATA.tmChange.forEach(function (q, i) {
+          wrap.appendChild(h('div.fld', [
+            h('div.fld-h', h('b', (i + 1) + '. ' + q.q)),
+            g2.pick(q.opts, q.ans, { cls: 'col' })
+          ]));
+        });
+        return wrap;
+      })(),
+      g2.verdict(),
+      g2.controls(),
+      why2
+    ]);
+
+    var showWhy2 = function () {
+      clear(why2);
+      var list = h('div');
+      DATA.tmChange.forEach(function (q, i) {
+        list.appendChild(h('p', { html: '<b>' + (i + 1) + '. ' + q.ans + '</b> — ' + q.why }));
+      });
+      why2.appendChild(moreBox('해설 보기 (5문항)', list));
+    };
+
+    host.appendChild(box2);
+    showWhy2();
+    g2.restore();
+  }
+});
+
+/* ══════════════════════════════════════════════════════════
+   ③ 나만의 타임라인 — 여기서부터 내 사례를 만든다
+   ══════════════════════════════════════════════════════════ */
+REG({
+  id: 'mytime', tab: 1, title: '✍ 나만의 타임라인',
+  render: function (host) {
+    var fieldInput = field('case_field', {
+      short: true, ph: '예: 길 찾기 / 음악 듣기 / 병원 진료 / 배달 / 사진',
+      help: '<b>내 관심 분야·진로 희망 분야</b>를 적는 것이 가장 좋습니다(간호·체육·경영·게임·농업…). ' +
+            '그 분야에서 <b>데이터가 무슨 일을 하는지</b> 떠올려 보세요. 이것이 <b>2번 사례</b>의 주제가 됩니다.'
+    });
+
+    var quick = h('div.cards');
+    DATA.timeline.forEach(function (t) {
+      quick.appendChild(h('button.dcard', { type: 'button', onclick: function () {
+        var inp = fieldInput.querySelector('input');
+        inp.value = t.name;
+        inp.dispatchEvent(new Event('input'));
+        toast('「' + JOSA.eul(t.name) + '」 넣었습니다. 고쳐 써도 됩니다.');
+      } }, t.icon + ' ' + t.name));
+    });
+
+    host.appendChild(card('✍ 나만의 타임라인 — 내 사례의 뼈대', [
+      goalBox([
+        '분야를 정하고 <b>과거 · 현재 · 미래</b> 세 칸을 짧게 채우세요. 한 줄이면 됩니다.',
+        '여기 적은 것이 <b>Ⅱ 영향 평가</b>에서 구체적인 사례로 자라납니다.',
+        '<b>미래 칸은 정답이 없습니다.</b> 근거를 댈 수 있는 예측이면 좋은 답입니다.'
+      ]),
+      fieldInput,
+      h('p.small', '빨리 고르고 싶으면 눌러 보세요 (고친 뒤 써도 됩니다)'),
+      quick,
+      h('div.hr'),
+      field('case_past', { rows: 2, ph: '예: 종이 지도책을 보거나 지나가는 사람에게 길을 물었다.' }),
+      field('case_now', { rows: 2, ph: '예: 지도 앱이 지금 막히는 길을 피해 다른 길로 안내한다.' }),
+      field('case_future', { rows: 2,
+        ph: '예: 목적지를 말하지 않아도 일정과 습관을 보고 먼저 길을 준비해 줄 것 같다.',
+        help: '왜 그렇게 될 것 같은지 <b>근거</b>를 한 마디 붙이면 훨씬 좋은 답이 됩니다.' }),
+      noteBox('아직 「누가·언제」 같은 것은 몰라도 됩니다. 여기서는 <b>큰 흐름</b>만 잡습니다. ' +
+              '구체적인 이름과 연도는 다음 탭에서 찾아 채웁니다.')
+    ]));
+  }
+});
+</script>
